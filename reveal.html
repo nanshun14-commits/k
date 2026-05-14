@@ -2,34 +2,156 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>リビールブラシ</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: sans-serif; background: #111; color: #eee; padding: 1.5rem; }
-h1 { font-size: 18px; font-weight: 500; margin-bottom: 1rem; }
-#file-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 1rem; }
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  padding: 0.5rem;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+h1 { font-size: 14px; font-weight: 500; margin-bottom: 0.4rem; color: #888; }
+
+#device-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#device-bar .sl { font-size: 11px; color: #555; margin-right: 4px; }
+#device-bar button {
+  font-size: 11px;
+  padding: 3px 10px;
+  background: transparent;
+  border: 0.5px solid #444;
+  color: #888;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#device-bar button.active {
+  background: #2a3a5a;
+  border-color: #5af;
+  color: #adf;
+}
+
+#file-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .ctrl-group { display: flex; align-items: center; gap: 8px; }
 label { font-size: 13px; color: #aaa; }
-input[type=file] { font-size: 13px; color: #eee; }
-.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 0.75rem; }
-input[type=range] { width: 80px; }
-button { font-size: 13px; padding: 5px 12px; background: transparent; border: 0.5px solid #555; color: #eee; border-radius: 8px; cursor: pointer; }
+input[type=file] { font-size: 13px; color: #eee; max-width: 200px; }
+
+#main-area {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+#main-area.layout-portrait {
+  flex-direction: row;
+}
+#main-area.layout-landscape {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+#controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+#main-area.layout-landscape #controls-panel {
+  flex-direction: column;
+  width: 100%;
+}
+
+.control-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+#main-area.layout-portrait .control-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+#main-area.layout-portrait .control-row > * {
+  align-self: flex-start;
+}
+
+button {
+  font-size: 13px;
+  padding: 5px 12px;
+  background: transparent;
+  border: 0.5px solid #555;
+  color: #eee;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
 button:hover { background: #2a2a2a; }
 button.active { background: #444; border-color: #aaa; }
 button.on { background: #2a3a5a; border-color: #5af; color: #adf; }
-#canvas-wrap { position: relative; display: inline-block; border-radius: 12px; overflow: hidden; border: 0.5px solid #444; user-select: none; touch-action: none; }
+
+input[type=range] { width: 100px; }
+.sl { font-size: 12px; color: #666; }
+.sep { color: #333; font-size: 18px; }
+
+#canvas-area {
+  display: flex;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+}
+#main-area.layout-landscape #canvas-area {
+  width: 100%;
+}
+#canvas-wrap {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 0.5px solid #444;
+  user-select: none;
+  touch-action: none;
+}
 canvas { display: block; }
 #slider-line-v { display:none; position:absolute; top:0; width:2px; height:100%; background:#fff; opacity:0; pointer-events:none; }
 #slider-line-h { display:none; position:absolute; left:0; width:100%; height:2px; background:#fff; opacity:0; pointer-events:none; }
-#hint { font-size: 13px; color: #666; margin-top: 0.75rem; }
-#progress { font-size: 13px; color: #aaa; margin-top: 0.4rem; }
-.sep { color: #333; font-size: 18px; }
-.sl { font-size: 12px; color: #666; margin-right: 2px; }
+#hint { font-size: 12px; color: #666; margin-top: 0.5rem; }
+#progress { font-size: 12px; color: #aaa; margin-top: 0.4rem; }
+
+.divider {
+  height: 1px;
+  background: #2a2a2a;
+  margin: 4px 0;
+}
+
+@media (max-width: 600px) {
+  body { padding: 0.75rem; }
+  button { font-size: 12px; padding: 4px 8px; }
+  input[type=range] { width: 80px; }
+}
 </style>
 </head>
 <body>
+
 <h1>リビールブラシ</h1>
+
+<div id="device-bar">
+  <span class="sl">デバイス</span>
+  <button id="dev-auto" class="active">自動</button>
+  <button id="dev-pc">PC</button>
+  <button id="dev-mobile">スマホ</button>
+  <button id="dev-tablet">液タブ</button>
+  <span class="sep">|</span>
+  <span class="sl">向き</span>
+  <button id="lay-portrait">縦長</button>
+  <button id="lay-landscape" class="active">横長</button>
+</div>
+
 <div id="file-row">
   <div class="ctrl-group">
     <label>元画像</label>
@@ -41,49 +163,62 @@ canvas { display: block; }
   </div>
 </div>
 
-<div class="controls">
-  <span class="sl">モード</span>
-  <button id="mode-brush" class="active">ブラシ</button>
-  <button id="mode-ghost">うっすら</button>
-  <button id="mode-left">← 左</button>
-  <button id="mode-right">右 →</button>
-  <button id="mode-top">↑ 上</button>
-  <button id="mode-bottom">↓ 下</button>
-  <button id="mode-jelly">プルプル</button>
-</div>
+<div id="main-area" class="layout-landscape">
 
-<div class="controls">
-  <span class="sl">ブラシ</span>
-  <input type="range" id="brush-size" min="10" max="120" value="40" step="1">
-  <span id="brush-out" style="font-size:13px;min-width:24px;">40</span>
-  <span class="sep" id="ghost-sep" style="display:none;">|</span>
-  <span class="sl" id="ghost-label" style="display:none;">透過度</span>
-  <input type="range" id="ghost-alpha" min="5" max="60" value="25" step="1" style="display:none;width:80px;">
-  <span id="ghost-out" style="font-size:13px;min-width:24px;display:none;">25</span>
-  <span class="sep" id="jelly-sep" style="display:none;">|</span>
-  <span class="sl" id="jelly-label" style="display:none;">やわらかさ</span>
-  <input type="range" id="jelly-soft" min="1" max="10" value="5" step="1" style="display:none;width:80px;">
-  <span id="jelly-out" style="font-size:13px;min-width:24px;display:none;">5</span>
-  <span class="sep" id="jelly-sep2" style="display:none;">|</span>
-  <span class="sl" id="jelly-size-label" style="display:none;">範囲</span>
-  <input type="range" id="jelly-radius" min="20" max="300" value="100" step="5" style="display:none;width:80px;">
-  <span id="jelly-radius-out" style="font-size:13px;min-width:24px;display:none;">100</span>
-  <span class="sep" id="jelly-sep3" style="display:none;">|</span>
-  <button id="jelly-loop-btn" style="display:none;">∞ ずっとプルプル</button>
-  <span class="sep">|</span>
-  <button id="reset-btn">リセット</button>
-  <button id="random-btn">ランダム展開</button>
-  <button id="flicker-btn">フリッカー</button>
-</div>
+  <div id="controls-panel">
 
-<div id="canvas-wrap">
-  <canvas id="main-canvas"></canvas>
-  <canvas id="hit-canvas" style="position:absolute;top:0;left:0;opacity:0;"></canvas>
-  <div id="slider-line-v"></div>
-  <div id="slider-line-h"></div>
+    <div class="control-row">
+      <span class="sl">モード</span>
+      <button id="mode-brush" class="active">ブラシ</button>
+      <button id="mode-ghost">うっすら</button>
+      <button id="mode-left">← 左</button>
+      <button id="mode-right">右 →</button>
+      <button id="mode-top">↑ 上</button>
+      <button id="mode-bottom">↓ 下</button>
+      <button id="mode-jelly">プルプル</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-row">
+      <span class="sl">ブラシ</span>
+      <input type="range" id="brush-size" min="10" max="120" value="40" step="1">
+      <span id="brush-out" style="font-size:13px;min-width:24px;">40</span>
+      <span class="sl" id="ghost-label" style="display:none;">透過度</span>
+      <input type="range" id="ghost-alpha" min="5" max="60" value="25" step="1" style="display:none;">
+      <span id="ghost-out" style="font-size:13px;min-width:24px;display:none;">25</span>
+      <span class="sl" id="jelly-label" style="display:none;">やわらかさ</span>
+      <input type="range" id="jelly-soft" min="1" max="10" value="5" step="1" style="display:none;">
+      <span id="jelly-out" style="font-size:13px;min-width:24px;display:none;">5</span>
+      <span class="sl" id="jelly-size-label" style="display:none;">範囲</span>
+      <input type="range" id="jelly-radius" min="20" max="300" value="100" step="5" style="display:none;">
+      <span id="jelly-radius-out" style="font-size:13px;min-width:24px;display:none;">100</span>
+      <button id="jelly-loop-btn" style="display:none;">∞ ずっとプルプル</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-row">
+      <button id="reset-btn">リセット</button>
+      <button id="random-btn">ランダム展開</button>
+      <button id="flicker-btn">フリッカー</button>
+    </div>
+
+    <div id="progress">リビール: 0%</div>
+    <p id="hint">元画像と生成後画像を選んでください。</p>
+
+  </div>
+
+  <div id="canvas-area">
+    <div id="canvas-wrap">
+      <canvas id="main-canvas"></canvas>
+      <canvas id="hit-canvas" style="position:absolute;top:0;left:0;opacity:0;"></canvas>
+      <div id="slider-line-v"></div>
+      <div id="slider-line-h"></div>
+    </div>
+  </div>
+
 </div>
-<div id="progress">リビール: 0%</div>
-<p id="hint">元画像と生成後画像を選んでからなぞってください。</p>
 
 <script>
 const mainCanvas = document.getElementById('main-canvas');
@@ -93,6 +228,7 @@ const sliderV = document.getElementById('slider-line-v');
 const sliderH = document.getElementById('slider-line-h');
 const progressEl = document.getElementById('progress');
 const hint = document.getElementById('hint');
+const mainArea = document.getElementById('main-area');
 
 let W=480, H=640;
 let baseImg=null, revealImg=null;
@@ -102,14 +238,13 @@ let maskData=null;
 let basePixels=null, revealPixels=null;
 let mode='brush';
 let sliderPos=0.5;
-let flickerTimer=null, flickerState=false;
+let flickerTimer=null; flickerState=false;
 let randomTimer=null;
 let ghostAlpha=0.25;
 let softness=5;
 let jellyRadius=100;
 let loopMode=false;
 
-// jelly grid (低解像度変位場)
 const JRES=6;
 let jW, jH;
 let dispX, dispY, velX, velY;
@@ -117,15 +252,89 @@ let jellyAnim=null;
 let dragActive=false;
 let dragOriginX=0, dragOriginY=0;
 let dragCurX=0, dragCurY=0;
-
-// マルチタッチ用: 複数の指を管理
-// { id, originX, originY, curX, curY }
 let activeTouches={};
+
+let currentDevice = 'auto';
+let currentLayout = 'landscape';
+
+function getMaxDisplaySize() {
+  let device = currentDevice;
+  if (device === 'auto') {
+    const w = window.innerWidth;
+    if (w < 700) device = 'mobile';
+    else if (w >= 2400) device = 'tablet';
+    else device = 'pc';
+  }
+
+  const winW = window.innerWidth;
+  const winH = window.innerHeight;
+
+  // 縦長レイアウト時はコントロールパネル分を引く
+  const controlPanelWidth = currentLayout === 'portrait' ? 180 : 0;
+
+  // 実際のキャンバスの位置(top)を取得して、そこから下を使える領域とする
+  const canvasWrap = document.getElementById('canvas-wrap');
+  const canvasTop = canvasWrap ? canvasWrap.getBoundingClientRect().top : 100;
+  const availableHeight = winH - canvasTop - 10;
+
+  let maxW, maxH;
+  if (device === 'mobile') {
+    maxW = winW - 24;
+    maxH = availableHeight;
+  } else if (device === 'tablet') {
+    maxW = Math.min(winW - controlPanelWidth - 40, 2400);
+    maxH = availableHeight;
+  } else {
+    maxW = Math.min(winW - controlPanelWidth - 40, 1600);
+    maxH = availableHeight;
+  }
+
+  return { maxW, maxH };
+}
+
+function calcDisplaySize(imgW, imgH) {
+  const { maxW, maxH } = getMaxDisplaySize();
+  const ratio = imgH / imgW;
+
+  let displayW = maxW;
+  let displayH = displayW * ratio;
+
+  if (displayH > maxH) {
+    displayH = maxH;
+    displayW = displayH / ratio;
+  }
+
+  return { displayW: Math.round(displayW), displayH: Math.round(displayH) };
+}
+
+function updateDisplaySize() {
+  if (!baseImg) {
+    // 初期状態でも画面いっぱいに表示
+    const { maxW, maxH } = getMaxDisplaySize();
+    // 縦長(3:4)のプレースホルダーを画面に最大化
+    let dW = maxW, dH = maxW * 4 / 3;
+    if (dH > maxH) {
+      dH = maxH;
+      dW = dH * 3 / 4;
+    }
+    mainCanvas.style.width = Math.round(dW) + 'px';
+    mainCanvas.style.height = Math.round(dH) + 'px';
+    hitCanvas.style.width = Math.round(dW) + 'px';
+    hitCanvas.style.height = Math.round(dH) + 'px';
+    return;
+  }
+  const { displayW, displayH } = calcDisplaySize(W, H);
+  mainCanvas.style.width = displayW + 'px';
+  mainCanvas.style.height = displayH + 'px';
+  hitCanvas.style.width = displayW + 'px';
+  hitCanvas.style.height = displayH + 'px';
+}
 
 function setSize(w,h){
   W=w; H=h;
   mainCanvas.width=W; mainCanvas.height=H;
   hitCanvas.width=W; hitCanvas.height=H;
+  updateDisplaySize();
   maskData=new Uint8Array(W*H);
   initJelly();
 }
@@ -163,7 +372,6 @@ function updateProgress(){
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 
-// bilinear sample
 function samplePixel(pixels,fx,fy){
   const x0=Math.floor(clamp(fx,0,W-1));
   const y0=Math.floor(clamp(fy,0,H-1));
@@ -181,7 +389,6 @@ function samplePixel(pixels,fx,fy){
   ];
 }
 
-// bilinear interp of jelly grid displacement
 function getDisp(px,py){
   const gx=px/JRES, gy=py/JRES;
   const gx0=Math.floor(gx), gy0=Math.floor(gy);
@@ -195,12 +402,8 @@ function getDisp(px,py){
   ];
 }
 
-// 単一ドラッグのdisp適用
-function applyDragToDisp(){
-  applyAllTouchesToDisp();
-}
+function applyDragToDisp(){ applyAllTouchesToDisp(); }
 
-// 全タッチ点をまとめてdispに重ね合わせ（velは触らない）
 function applyAllTouchesToDisp(){
   const maxPull=120;
   const gRadius=jellyRadius/JRES;
@@ -225,9 +428,7 @@ function applyAllTouchesToDisp(){
 
 function updateJellySpring(){
   const stiffness=0.04+(11-softness)*0.008;
-  // loopMode: damping=1.0 (減衰なし)、通常: damping<1.0
   const damping=loopMode?1.0:(0.72+softness*0.022);
-
   let moving=false;
   for(let i=0;i<jW*jH;i++){
     velX[i]=(velX[i]-dispX[i]*stiffness)*damping;
@@ -237,12 +438,8 @@ function updateJellySpring(){
     if(Math.abs(velX[i])>0.02||Math.abs(velY[i])>0.02) moving=true;
   }
   renderJelly();
-
-  if(loopMode||moving){
-    jellyAnim=requestAnimationFrame(updateJellySpring);
-  } else {
-    jellyAnim=null;
-  }
+  if(loopMode||moving){ jellyAnim=requestAnimationFrame(updateJellySpring); }
+  else { jellyAnim=null; }
 }
 
 function renderJelly(){
@@ -251,7 +448,6 @@ function renderJelly(){
   const d=imgData.data;
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
     const [dx,dy]=getDisp(x,y);
-    // 変位を小さめにクランプして極端な歪みを防ぐ
     const sx=clamp(x+dx*0.6,0,W-1);
     const sy=clamp(y+dy*0.6,0,H-1);
     const s=samplePixel(revealPixels,sx,sy);
@@ -343,9 +539,9 @@ function startFlicker(){
 function stopFlicker(){if(flickerTimer){clearInterval(flickerTimer);flickerTimer=null;}flickerState=false;}
 
 function showJellyControls(show){
-  ['jelly-label','jelly-sep','jelly-soft','jelly-out',
-   'jelly-sep2','jelly-size-label','jelly-radius','jelly-radius-out',
-   'jelly-sep3','jelly-loop-btn'].forEach(id=>{
+  ['jelly-label','jelly-soft','jelly-out',
+   'jelly-size-label','jelly-radius','jelly-radius-out',
+   'jelly-loop-btn'].forEach(id=>{
     document.getElementById(id).style.display=show?'inline-block':'none';
   });
 }
@@ -355,7 +551,7 @@ function setMode(m){
   sliderV.style.display=(m==='left'||m==='right')?'block':'none';
   sliderH.style.display=(m==='top'||m==='bottom')?'block':'none';
   const isGhost=m==='ghost',isJelly=m==='jelly';
-  ['ghost-label','ghost-sep','ghost-alpha','ghost-out'].forEach(id=>{
+  ['ghost-label','ghost-alpha','ghost-out'].forEach(id=>{
     document.getElementById(id).style.display=isGhost?'inline-block':'none';
   });
   showJellyControls(isJelly);
@@ -368,6 +564,40 @@ function setMode(m){
   render();
 }
 
+function setDevice(d) {
+  currentDevice = d;
+  ['auto','pc','mobile','tablet'].forEach(id=>{
+    document.getElementById('dev-'+id).classList.remove('active');
+  });
+  document.getElementById('dev-'+d).classList.add('active');
+
+  if (d === 'mobile') {
+    setLayout('landscape');
+  } else if (d === 'pc' || d === 'tablet') {
+    setLayout('portrait');
+  } else {
+    updateDisplaySize();
+  }
+}
+
+function setLayout(l) {
+  currentLayout = l;
+  mainArea.classList.remove('layout-portrait', 'layout-landscape');
+  mainArea.classList.add('layout-' + l);
+  ['portrait','landscape'].forEach(id=>{
+    document.getElementById('lay-'+id).classList.remove('active');
+  });
+  document.getElementById('lay-'+l).classList.add('active');
+  updateDisplaySize();
+}
+
+document.getElementById('dev-auto').addEventListener('click',()=>setDevice('auto'));
+document.getElementById('dev-pc').addEventListener('click',()=>setDevice('pc'));
+document.getElementById('dev-mobile').addEventListener('click',()=>setDevice('mobile'));
+document.getElementById('dev-tablet').addEventListener('click',()=>setDevice('tablet'));
+document.getElementById('lay-portrait').addEventListener('click',()=>setLayout('portrait'));
+document.getElementById('lay-landscape').addEventListener('click',()=>setLayout('landscape'));
+
 document.getElementById('jelly-loop-btn').addEventListener('click',()=>{
   if(!revealPixels)return;
   loopMode=!loopMode;
@@ -377,7 +607,6 @@ document.getElementById('jelly-loop-btn').addEventListener('click',()=>{
     if(!jellyAnim) jellyAnim=requestAnimationFrame(updateJellySpring);
   } else {
     btn.classList.remove('on');btn.textContent='∞ ずっとプルプル';
-    // 止めた後は自然に収束
   }
 });
 
@@ -399,8 +628,15 @@ document.getElementById('flicker-btn').addEventListener('click',startFlicker);
 document.getElementById('base-file').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   loadImg(f,img=>{
-    baseImg=img;const ratio=img.height/img.width;
-    setSize(480,Math.round(480*ratio));
+    baseImg=img;
+    const maxInternal = 800;
+    let iW = img.width, iH = img.height;
+    if (iW > maxInternal || iH > maxInternal) {
+      const scale = maxInternal / Math.max(iW, iH);
+      iW = Math.round(iW * scale);
+      iH = Math.round(iH * scale);
+    }
+    setSize(iW, iH);
     basePixels=getPixels(img);
     if(revealImg)revealPixels=getPixels(revealImg);
     resetMask();
@@ -428,7 +664,6 @@ function handleDown(e){
   if(mode==='jelly'){
     hitCanvas.style.cursor='grabbing';
     if(loopMode){
-      // ずっとプルプル中はactiveTouchesに追加
       activeTouches[MOUSE_ID]={originX:p.x,originY:p.y,curX:p.x,curY:p.y};
       applyAllTouchesToDisp();
     } else {
@@ -488,7 +723,6 @@ function handleUp(){
       if(t){
         releaseJellyPoint(t.originX,t.originY,t.curX,t.curY);
         delete activeTouches[MOUSE_ID];
-        // 残りのタッチがあればdispを再適用
         if(Object.keys(activeTouches).length>0) applyAllTouchesToDisp();
         if(!jellyAnim) jellyAnim=requestAnimationFrame(updateJellySpring);
       }
@@ -505,11 +739,9 @@ hitCanvas.addEventListener('mousemove',e=>{handleMove(e);});
 hitCanvas.addEventListener('mouseup',handleUp);
 hitCanvas.addEventListener('mouseleave',handleUp);
 
-// マルチタッチ対応
 hitCanvas.addEventListener('touchstart',e=>{
   e.preventDefault();
   if(mode==='jelly'&&loopMode){
-    // ずっとプルプル中: 全タッチ点を登録
     Array.from(e.changedTouches).forEach(t=>{
       const rect=hitCanvas.getBoundingClientRect();
       const x=(t.clientX-rect.left)*W/rect.width;
@@ -554,7 +786,10 @@ hitCanvas.addEventListener('touchend',e=>{
   }
 });
 
+window.addEventListener('resize', updateDisplaySize);
+
 setSize(480,640);
+updateDisplaySize();
 ctx.fillStyle='#1a1a1a';ctx.fillRect(0,0,W,H);
 ctx.fillStyle='#555';ctx.font='16px sans-serif';ctx.textAlign='center';
 ctx.fillText('元画像を選んでください',W/2,H/2);
