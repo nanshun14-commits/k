@@ -202,6 +202,12 @@ canvas { display: block; }
       <button id="reset-btn">リセット</button>
       <button id="random-btn">ランダム展開</button>
       <button id="flicker-btn">フリッカー</button>
+      <button id="toggle-btn">⇄ 0%↔100%</button>
+      <span class="sl">間隔(秒)</span>
+      <input type="number" id="toggle-interval" min="0.1" max="60" step="0.1" value="2" style="width:60px;font-size:13px;padding:4px;background:#1a1a1a;border:0.5px solid #555;color:#eee;border-radius:6px;">
+      <button id="gradient-btn">〜 グラデ0↔100</button>
+      <span class="sl">片道(秒)</span>
+      <input type="number" id="gradient-duration" min="0.1" max="60" step="0.1" value="3" style="width:60px;font-size:13px;padding:4px;background:#1a1a1a;border:0.5px solid #555;color:#eee;border-radius:6px;">
     </div>
 
     <div id="progress">リビール: 0%</div>
@@ -238,8 +244,14 @@ let maskData=null;
 let basePixels=null, revealPixels=null;
 let mode='brush';
 let sliderPos=0.5;
-let flickerTimer=null; flickerState=false;
+let flickerTimer=null, flickerState=false;
 let randomTimer=null;
+let toggleTimer=null;
+let toggleState=false; // false=0%, true=100%
+let gradientRAF=null;
+let gradientStartTime=0;
+let gradientDirection=1; // 1=増加, -1=減少
+let gradientStartValue=0;
 let ghostAlpha=0.25;
 let softness=5;
 let jellyRadius=100;
@@ -538,6 +550,96 @@ function startFlicker(){
 }
 function stopFlicker(){if(flickerTimer){clearInterval(flickerTimer);flickerTimer=null;}flickerState=false;}
 
+function startToggle(){
+  if(!basePixels||!revealPixels)return;
+  stopToggle();
+  const intervalSec=parseFloat(document.getElementById('toggle-interval').value)||2;
+  const intervalMs=intervalSec*1000;
+  const btn=document.getElementById('toggle-btn');
+  btn.classList.add('on');
+  btn.textContent='■ 止める';
+
+  // 最初は0%(元画像)
+  toggleState=false;
+  maskData=new Uint8Array(W*H);
+  render();
+
+  toggleTimer=setInterval(()=>{
+    toggleState=!toggleState;
+    if(toggleState){
+      // 100% (全部リビール)
+      maskData=new Uint8Array(W*H);
+      for(let i=0;i<maskData.length;i++) maskData[i]=255;
+    } else {
+      // 0% (元画像)
+      maskData=new Uint8Array(W*H);
+    }
+    render();
+  },intervalMs);
+}
+
+function stopToggle(){
+  if(toggleTimer){clearInterval(toggleTimer);toggleTimer=null;}
+  const btn=document.getElementById('toggle-btn');
+  btn.classList.remove('on');
+  btn.textContent='⇄ 0%↔100%';
+}
+
+function startGradient(){
+  if(!basePixels||!revealPixels)return;
+  stopGradient();
+  const btn=document.getElementById('gradient-btn');
+  btn.classList.add('on');
+  btn.textContent='■ 止める';
+
+  // 現在のリビール率(平均値)から開始
+  let sum=0;
+  for(let i=0;i<maskData.length;i++) sum+=maskData[i];
+  const currentRatio = (sum/maskData.length)/255;
+  gradientStartValue = currentRatio;
+  gradientDirection = currentRatio < 0.5 ? 1 : -1;
+  gradientStartTime = performance.now();
+
+  function step(now){
+    const duration = (parseFloat(document.getElementById('gradient-duration').value)||3)*1000;
+    const elapsed = now - gradientStartTime;
+    let t = elapsed/duration;
+
+    let value;
+    if(gradientDirection===1){
+      value = gradientStartValue + (1-gradientStartValue)*t;
+      if(value >= 1){
+        value = 1;
+        gradientDirection = -1;
+        gradientStartValue = 1;
+        gradientStartTime = now;
+      }
+    } else {
+      value = gradientStartValue - gradientStartValue*t;
+      if(value <= 0){
+        value = 0;
+        gradientDirection = 1;
+        gradientStartValue = 0;
+        gradientStartTime = now;
+      }
+    }
+
+    const v = Math.round(value*255);
+    for(let i=0;i<maskData.length;i++) maskData[i]=v;
+    render();
+
+    gradientRAF = requestAnimationFrame(step);
+  }
+  gradientRAF = requestAnimationFrame(step);
+}
+
+function stopGradient(){
+  if(gradientRAF){cancelAnimationFrame(gradientRAF);gradientRAF=null;}
+  const btn=document.getElementById('gradient-btn');
+  btn.classList.remove('on');
+  btn.textContent='〜 グラデ0↔100';
+}
+
 function showJellyControls(show){
   ['jelly-label','jelly-soft','jelly-out',
    'jelly-size-label','jelly-radius','jelly-radius-out',
@@ -624,6 +726,28 @@ document.getElementById('jelly-radius').addEventListener('input',e=>{jellyRadius
 document.getElementById('reset-btn').addEventListener('click',resetMask);
 document.getElementById('random-btn').addEventListener('click',startRandom);
 document.getElementById('flicker-btn').addEventListener('click',startFlicker);
+document.getElementById('toggle-btn').addEventListener('click',()=>{
+  if(toggleTimer){
+    stopToggle();
+  } else {
+    startToggle();
+  }
+});
+// 間隔変更時、動作中なら再起動
+document.getElementById('toggle-interval').addEventListener('change',()=>{
+  if(toggleTimer){
+    stopToggle();
+    startToggle();
+  }
+});
+
+document.getElementById('gradient-btn').addEventListener('click',()=>{
+  if(gradientRAF){
+    stopGradient();
+  } else {
+    startGradient();
+  }
+});
 
 document.getElementById('base-file').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
