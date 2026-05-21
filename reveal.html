@@ -161,6 +161,11 @@ canvas { display: block; }
     <label>生成後画像</label>
     <input type="file" id="reveal-file" accept="image/*">
   </div>
+  <div class="ctrl-group">
+    <label>3枚目(任意)</label>
+    <input type="file" id="reveal3-file" accept="image/*">
+    <button id="reveal3-clear" style="font-size:11px;padding:2px 6px;margin-left:4px;">×</button>
+  </div>
 </div>
 
 <div id="main-area" class="layout-landscape">
@@ -237,11 +242,11 @@ const hint = document.getElementById('hint');
 const mainArea = document.getElementById('main-area');
 
 let W=480, H=640;
-let baseImg=null, revealImg=null;
+let baseImg=null, revealImg=null, reveal3Img=null;
 let drawing=false;
 let brushSize=40;
 let maskData=null;
-let basePixels=null, revealPixels=null;
+let basePixels=null, revealPixels=null, reveal3Pixels=null;
 let mode='brush';
 let sliderPos=0.5;
 let flickerTimer=null, flickerState=false;
@@ -252,6 +257,8 @@ let gradientRAF=null;
 let gradientStartTime=0;
 let gradientDirection=1; // 1=増加, -1=減少
 let gradientStartValue=0;
+let gradientActive=false; // グラデーション動作中フラグ
+let gradientValue=0; // 0〜1の進捗値(3枚モード時に使う)
 let ghostAlpha=0.25;
 let softness=5;
 let jellyRadius=100;
@@ -500,6 +507,29 @@ function render(){
       if(revealPixels){d[p]=basePixels[p]*(1-a)+revealPixels[p]*a;d[p+1]=basePixels[p+1]*(1-a)+revealPixels[p+1]*a;d[p+2]=basePixels[p+2]*(1-a)+revealPixels[p+2]*a;d[p+3]=255;}
       else{d[p]=basePixels[p];d[p+1]=basePixels[p+1];d[p+2]=basePixels[p+2];d[p+3]=255;}
     }
+  } else if(gradientActive&&reveal3Pixels&&revealPixels){
+    // 3枚モードのグラデーション専用描画(brushモード時のみ作用)
+    // 0〜0.5: base→reveal、0.5〜1: reveal→reveal3
+    const t=gradientValue;
+    if(t<=0.5){
+      const a=t*2; // 0→1
+      for(let i=0;i<W*H;i++){
+        const p=i*4;
+        d[p]=basePixels[p]*(1-a)+revealPixels[p]*a;
+        d[p+1]=basePixels[p+1]*(1-a)+revealPixels[p+1]*a;
+        d[p+2]=basePixels[p+2]*(1-a)+revealPixels[p+2]*a;
+        d[p+3]=255;
+      }
+    } else {
+      const a=(t-0.5)*2; // 0→1
+      for(let i=0;i<W*H;i++){
+        const p=i*4;
+        d[p]=revealPixels[p]*(1-a)+reveal3Pixels[p]*a;
+        d[p+1]=revealPixels[p+1]*(1-a)+reveal3Pixels[p+1]*a;
+        d[p+2]=revealPixels[p+2]*(1-a)+reveal3Pixels[p+2]*a;
+        d[p+3]=255;
+      }
+    }
   } else {
     for(let i=0;i<W*H;i++){
       const p=i*4,alpha=maskData[i]/255;
@@ -592,11 +622,14 @@ function startGradient(){
   btn.classList.add('on');
   btn.textContent='■ 止める';
 
+  gradientActive=true;
+
   // 現在のリビール率(平均値)から開始
   let sum=0;
   for(let i=0;i<maskData.length;i++) sum+=maskData[i];
   const currentRatio = (sum/maskData.length)/255;
   gradientStartValue = currentRatio;
+  gradientValue = currentRatio;
   gradientDirection = currentRatio < 0.5 ? 1 : -1;
   gradientStartTime = performance.now();
 
@@ -624,9 +657,17 @@ function startGradient(){
       }
     }
 
-    const v = Math.round(value*255);
-    for(let i=0;i<maskData.length;i++) maskData[i]=v;
-    render();
+    gradientValue = value;
+
+    if(reveal3Pixels){
+      // 3枚モード: render側で2段階補間するので、maskDataはいじらない
+      render();
+    } else {
+      // 2枚モード: 従来通りmaskDataを書き換える
+      const v = Math.round(value*255);
+      for(let i=0;i<maskData.length;i++) maskData[i]=v;
+      render();
+    }
 
     gradientRAF = requestAnimationFrame(step);
   }
@@ -635,9 +676,11 @@ function startGradient(){
 
 function stopGradient(){
   if(gradientRAF){cancelAnimationFrame(gradientRAF);gradientRAF=null;}
+  gradientActive=false;
   const btn=document.getElementById('gradient-btn');
   btn.classList.remove('on');
   btn.textContent='〜 グラデ0↔100';
+  render(); // 3枚モードから通常表示に戻す
 }
 
 function showJellyControls(show){
@@ -770,6 +813,15 @@ document.getElementById('base-file').addEventListener('change',e=>{
 document.getElementById('reveal-file').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   loadImg(f,img=>{revealImg=img;if(baseImg){revealPixels=getPixels(img);render();}hint.textContent=baseImg?'準備完了！':'元画像も選んでください。';});
+});
+document.getElementById('reveal3-file').addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
+  loadImg(f,img=>{reveal3Img=img;if(baseImg){reveal3Pixels=getPixels(img);render();}});
+});
+document.getElementById('reveal3-clear').addEventListener('click',()=>{
+  reveal3Img=null;reveal3Pixels=null;
+  document.getElementById('reveal3-file').value='';
+  render();
 });
 
 function getPos(e){
