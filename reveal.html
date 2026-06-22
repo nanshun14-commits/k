@@ -130,9 +130,34 @@ canvas { display: block; }
 }
 
 @media (max-width: 600px) {
-  body { padding: 0.75rem; }
+  body { padding: 0.5rem; }
   button { font-size: 12px; padding: 4px 8px; }
   input[type=range] { width: 80px; }
+}
+
+/* スマホ縦: 写真を上に固定、ツールは下でスクロール */
+#main-area.layout-mobile {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+#main-area.layout-mobile #canvas-area {
+  width: 100%;
+  order: -1;            /* 写真を一番上へ */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #111;
+  padding-bottom: 4px;
+}
+#main-area.layout-mobile #controls-panel {
+  width: 100%;
+  flex-direction: column;
+}
+#main-area.layout-mobile .control-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
 }
 </style>
 </head>
@@ -176,6 +201,8 @@ canvas { display: block; }
       <span class="sl">モード</span>
       <button id="mode-brush" class="active">ブラシ</button>
       <button id="mode-ghost">うっすら</button>
+      <button id="mode-machinegun">マシンガン</button>
+      <button id="mode-flame">火炎放射</button>
       <button id="mode-left">← 左</button>
       <button id="mode-right">右 →</button>
       <button id="mode-top">↑ 上</button>
@@ -186,7 +213,7 @@ canvas { display: block; }
     <div class="divider"></div>
 
     <div class="control-row">
-      <span class="sl">ブラシ</span>
+      <span class="sl" id="brush-label">ブラシ</span>
       <input type="range" id="brush-size" min="10" max="120" value="40" step="1">
       <span id="brush-out" style="font-size:13px;min-width:24px;">40</span>
       <span class="sl" id="ghost-label" style="display:none;">透過度</span>
@@ -199,6 +226,23 @@ canvas { display: block; }
       <input type="range" id="jelly-radius" min="20" max="300" value="100" step="5" style="display:none;">
       <span id="jelly-radius-out" style="font-size:13px;min-width:24px;display:none;">100</span>
       <button id="jelly-loop-btn" style="display:none;">∞ ずっとプルプル</button>
+
+      <span class="sl" id="mg-size-label" style="display:none;">弾サイズ</span>
+      <input type="range" id="mg-size" min="4" max="50" value="14" step="1" style="display:none;">
+      <span id="mg-size-out" style="font-size:13px;min-width:24px;display:none;">14</span>
+      <span class="sl" id="mg-rate-label" style="display:none;">連射(ms)</span>
+      <input type="range" id="mg-rate" min="20" max="400" value="80" step="10" style="display:none;">
+      <span id="mg-rate-out" style="font-size:13px;min-width:30px;display:none;">80</span>
+      <span class="sl" id="mg-spread-label" style="display:none;">ばらつき</span>
+      <input type="range" id="mg-spread" min="0" max="120" value="40" step="5" style="display:none;">
+      <span id="mg-spread-out" style="font-size:13px;min-width:24px;display:none;">40</span>
+
+      <span class="sl" id="flame-size-label" style="display:none;">炎サイズ</span>
+      <input type="range" id="flame-size" min="10" max="80" value="30" step="2" style="display:none;">
+      <span id="flame-size-out" style="font-size:13px;min-width:24px;display:none;">30</span>
+      <span class="sl" id="flame-speed-label" style="display:none;">燃え広がり</span>
+      <input type="range" id="flame-speed" min="1" max="10" value="5" step="1" style="display:none;">
+      <span id="flame-speed-out" style="font-size:13px;min-width:24px;display:none;">5</span>
     </div>
 
     <div class="divider"></div>
@@ -264,6 +308,17 @@ let softness=5;
 let jellyRadius=100;
 let loopMode=false;
 
+// マシンガン
+let mgTimer=null;
+let mgSize=14, mgRate=80, mgSpread=40;
+let mgX=0, mgY=0; // 現在の照準位置
+// 火炎放射器
+let flameRAF=null;
+let flameSize=30, flameSpeed=5;
+let flameField=null;   // Float32Array: 各ピクセルの炎の強さ(0〜1)
+let flameSeeds=false;  // 種があるか
+let flameDrawing=false;
+
 const JRES=6;
 let jW, jH;
 let dispX, dispY, velX, velY;
@@ -288,6 +343,13 @@ function getMaxDisplaySize() {
   const winW = window.innerWidth;
   const winH = window.innerHeight;
 
+  // スマホ縦: 写真を画面上部に固定。幅いっぱい＆高さは画面の約58%まで
+  if (currentLayout === 'mobile') {
+    const maxW = winW - 16;
+    const maxH = Math.round(winH * 0.58);
+    return { maxW, maxH };
+  }
+
   // 縦長レイアウト時はコントロールパネル分を引く
   const controlPanelWidth = currentLayout === 'portrait' ? 180 : 0;
 
@@ -297,14 +359,14 @@ function getMaxDisplaySize() {
   const availableHeight = winH - canvasTop - 10;
 
   let maxW, maxH;
-  if (device === 'mobile') {
-    maxW = winW - 24;
-    maxH = availableHeight;
-  } else if (device === 'tablet') {
+  if (device === 'tablet') {
     maxW = Math.min(winW - controlPanelWidth - 40, 2400);
     maxH = availableHeight;
-  } else {
+  } else if (device === 'pc') {
     maxW = Math.min(winW - controlPanelWidth - 40, 1600);
+    maxH = availableHeight;
+  } else {
+    maxW = winW - 24;
     maxH = availableHeight;
   }
 
@@ -550,8 +612,99 @@ function paintMask(px,py){
   render();
 }
 
+// ===== マシンガン =====
+// 円形の弾痕を1発撒く(ランダムにばらつかせる)
+function fireBullet(){
+  const spread=mgSpread;
+  const ang=Math.random()*Math.PI*2;
+  const dist=Math.random()*spread;
+  const cx=mgX+Math.cos(ang)*dist;
+  const cy=mgY+Math.sin(ang)*dist;
+  const r=mgSize;
+  const x0=Math.max(0,Math.floor(cx-r)),x1=Math.min(W-1,Math.ceil(cx+r));
+  const y0=Math.max(0,Math.floor(cy-r)),y1=Math.min(H-1,Math.ceil(cy+r));
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++)
+    if((x-cx)**2+(y-cy)**2<=r*r) maskData[y*W+x]=255;
+  render();
+}
+function startMachinegun(){
+  if(!basePixels)return;
+  stopMachinegun();
+  fireBullet(); // 押した瞬間に1発
+  mgTimer=setInterval(fireBullet,mgRate);
+}
+function stopMachinegun(){
+  if(mgTimer){clearInterval(mgTimer);mgTimer=null;}
+}
+
+// ===== 火炎放射器 =====
+// 触ったところに火種を置く。種から炎が周囲へ燃え広がる(maskを広げる)
+function ensureFlameField(){
+  if(!flameField||flameField.length!==W*H) flameField=new Float32Array(W*H);
+}
+function igniteAt(px,py){
+  ensureFlameField();
+  const r=flameSize;
+  const x0=Math.max(0,Math.floor(px-r)),x1=Math.min(W-1,Math.ceil(px+r));
+  const y0=Math.max(0,Math.floor(py-r)),y1=Math.min(H-1,Math.ceil(py+r));
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const d2=(x-px)**2+(y-py)**2;
+    if(d2<=r*r){
+      const i=y*W+x;
+      flameField[i]=1;        // 燃えてる
+      maskData[i]=255;        // すぐリビール
+    }
+  }
+  flameSeeds=true;
+  if(!flameRAF) flameRAF=requestAnimationFrame(flameStep);
+}
+// 炎の拡散ステップ: 燃えてるセルの隣へ確率的に飛び火
+function flameStep(){
+  if(!flameField){flameRAF=null;return;}
+  // 拡散の強さ(燃え広がりスライダー)
+  const spreadProb=0.06+flameSpeed*0.02; // 1〜10 → 0.08〜0.26
+  // 処理を間引くため、ランダムサンプリングで広げる
+  const burning=[];
+  for(let i=0;i<flameField.length;i++) if(flameField[i]>0.15) burning.push(i);
+
+  if(burning.length===0){
+    // 燃え尽きた
+    flameRAF=null;
+    return;
+  }
+
+  for(let k=0;k<burning.length;k++){
+    const i=burning[k];
+    const x=i%W, y=(i/W)|0;
+    const strength=flameField[i];
+    // 4方向+斜めへ飛び火
+    const neigh=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+    for(const [dx,dy] of neigh){
+      const nx=x+dx, ny=y+dy;
+      if(nx<0||ny<0||nx>=W||ny>=H) continue;
+      const ni=ny*W+nx;
+      if(flameField[ni]<0.9 && Math.random()<spreadProb*strength){
+        flameField[ni]=Math.min(1,flameField[ni]+0.6);
+        maskData[ni]=255; // 燃え移ったらリビール
+      }
+    }
+    // だんだん燃え尽きる(火は弱まる)
+    flameField[i]=strength-0.02;
+    if(flameField[i]<0) flameField[i]=0;
+  }
+  render();
+  flameRAF=requestAnimationFrame(flameStep);
+}
+function stopFlame(){
+  if(flameRAF){cancelAnimationFrame(flameRAF);flameRAF=null;}
+  // 種フィールドはクリア(リビール結果のmaskDataは残す)
+  flameField=null;
+  flameSeeds=false;
+  flameDrawing=false;
+}
+
 function resetMask(){
-  stopFlicker();stopRandom();
+  stopFlicker();stopRandom();stopMachinegun();stopFlame();
   loopMode=false;
   const btn=document.getElementById('jelly-loop-btn');
   btn.classList.remove('on');btn.textContent='∞ ずっとプルプル';
@@ -691,7 +844,25 @@ function showJellyControls(show){
   });
 }
 
+function showMgControls(show){
+  ['mg-size-label','mg-size','mg-size-out',
+   'mg-rate-label','mg-rate','mg-rate-out',
+   'mg-spread-label','mg-spread','mg-spread-out'].forEach(id=>{
+    document.getElementById(id).style.display=show?'inline-block':'none';
+  });
+}
+
+function showFlameControls(show){
+  ['flame-size-label','flame-size','flame-size-out',
+   'flame-speed-label','flame-speed','flame-speed-out'].forEach(id=>{
+    document.getElementById(id).style.display=show?'inline-block':'none';
+  });
+}
+
 function setMode(m){
+  // 別モードへ移る時は連射・炎を止める
+  stopMachinegun();
+  stopFlame();
   mode=m;
   sliderV.style.display=(m==='left'||m==='right')?'block':'none';
   sliderH.style.display=(m==='top'||m==='bottom')?'block':'none';
@@ -700,9 +871,16 @@ function setMode(m){
     document.getElementById(id).style.display=isGhost?'inline-block':'none';
   });
   showJellyControls(isJelly);
+  showMgControls(m==='machinegun');
+  showFlameControls(m==='flame');
+  // ブラシサイズはマシンガン/火炎の時だけ隠す(他は従来通り)
+  const showBrush = !['machinegun','flame'].includes(m);
+  document.getElementById('brush-label').style.display=showBrush?'inline-block':'none';
+  document.getElementById('brush-size').style.display=showBrush?'inline-block':'none';
+  document.getElementById('brush-out').style.display=showBrush?'inline-block':'none';
   const isCompare=['left','right','top','bottom'].includes(m);
   hitCanvas.style.cursor=isJelly?'grab':isCompare?(m==='top'||m==='bottom'?'ns-resize':'ew-resize'):'crosshair';
-  ['brush','ghost','left','right','top','bottom','jelly'].forEach(id=>{
+  ['brush','ghost','machinegun','flame','left','right','top','bottom','jelly'].forEach(id=>{
     const el=document.getElementById('mode-'+id);if(el)el.classList.remove('active');
   });
   document.getElementById('mode-'+m).classList.add('active');
@@ -717,22 +895,28 @@ function setDevice(d) {
   document.getElementById('dev-'+d).classList.add('active');
 
   if (d === 'mobile') {
-    setLayout('landscape');
+    setLayout('mobile');
   } else if (d === 'pc' || d === 'tablet') {
     setLayout('portrait');
   } else {
-    updateDisplaySize();
+    // auto: 画面幅で判定
+    const w = window.innerWidth;
+    if (w < 700) setLayout('mobile');
+    else setLayout('portrait');
   }
 }
 
 function setLayout(l) {
   currentLayout = l;
-  mainArea.classList.remove('layout-portrait', 'layout-landscape');
+  mainArea.classList.remove('layout-portrait', 'layout-landscape', 'layout-mobile');
   mainArea.classList.add('layout-' + l);
+  // レイアウトボタンのハイライト(mobileはlandscape扱いで表示)
   ['portrait','landscape'].forEach(id=>{
     document.getElementById('lay-'+id).classList.remove('active');
   });
-  document.getElementById('lay-'+l).classList.add('active');
+  const layBtn = l === 'portrait' ? 'lay-portrait' : 'lay-landscape';
+  const btnEl = document.getElementById(layBtn);
+  if(btnEl) btnEl.classList.add('active');
   updateDisplaySize();
 }
 
@@ -762,10 +946,19 @@ document.getElementById('mode-right').addEventListener('click',()=>setMode('righ
 document.getElementById('mode-top').addEventListener('click',()=>setMode('top'));
 document.getElementById('mode-bottom').addEventListener('click',()=>setMode('bottom'));
 document.getElementById('mode-jelly').addEventListener('click',()=>setMode('jelly'));
+document.getElementById('mode-machinegun').addEventListener('click',()=>setMode('machinegun'));
+document.getElementById('mode-flame').addEventListener('click',()=>setMode('flame'));
 document.getElementById('brush-size').addEventListener('input',e=>{brushSize=parseInt(e.target.value);document.getElementById('brush-out').textContent=brushSize;});
 document.getElementById('ghost-alpha').addEventListener('input',e=>{ghostAlpha=parseInt(e.target.value)/100;document.getElementById('ghost-out').textContent=e.target.value;render();});
 document.getElementById('jelly-soft').addEventListener('input',e=>{softness=parseInt(e.target.value);document.getElementById('jelly-out').textContent=softness;});
 document.getElementById('jelly-radius').addEventListener('input',e=>{jellyRadius=parseInt(e.target.value);document.getElementById('jelly-radius-out').textContent=jellyRadius;});
+// マシンガンのスライダー
+document.getElementById('mg-size').addEventListener('input',e=>{mgSize=parseInt(e.target.value);document.getElementById('mg-size-out').textContent=mgSize;});
+document.getElementById('mg-rate').addEventListener('input',e=>{mgRate=parseInt(e.target.value);document.getElementById('mg-rate-out').textContent=mgRate;if(mgTimer){stopMachinegun();startMachinegun();}});
+document.getElementById('mg-spread').addEventListener('input',e=>{mgSpread=parseInt(e.target.value);document.getElementById('mg-spread-out').textContent=mgSpread;});
+// 火炎のスライダー
+document.getElementById('flame-size').addEventListener('input',e=>{flameSize=parseInt(e.target.value);document.getElementById('flame-size-out').textContent=flameSize;});
+document.getElementById('flame-speed').addEventListener('input',e=>{flameSpeed=parseInt(e.target.value);document.getElementById('flame-speed-out').textContent=flameSpeed;});
 document.getElementById('reset-btn').addEventListener('click',resetMask);
 document.getElementById('random-btn').addEventListener('click',startRandom);
 document.getElementById('flicker-btn').addEventListener('click',startFlicker);
@@ -851,6 +1044,8 @@ function handleDown(e){
     }
   } else if(['left','right'].includes(mode)){sliderPos=clamp(p.rx,0,1);render();}
   else if(['top','bottom'].includes(mode)){sliderPos=clamp(p.ry,0,1);render();}
+  else if(mode==='machinegun'){mgX=p.x;mgY=p.y;startMachinegun();}
+  else if(mode==='flame'){flameDrawing=true;igniteAt(p.x,p.y);}
   else paintMask(p.x,p.y);
 }
 
@@ -870,6 +1065,8 @@ function handleMove(e){
     }
   } else if(['left','right'].includes(mode)){sliderPos=clamp(p.rx,0,1);render();}
   else if(['top','bottom'].includes(mode)){sliderPos=clamp(p.ry,0,1);render();}
+  else if(mode==='machinegun'){mgX=p.x;mgY=p.y;}
+  else if(mode==='flame'){if(flameDrawing)igniteAt(p.x,p.y);}
   else paintMask(p.x,p.y);
 }
 
@@ -892,6 +1089,10 @@ function releaseJellyPoint(ox,oy,cx,cy){
 
 function handleUp(){
   drawing=false;
+  // マシンガン: 指を離したら連射ストップ
+  if(mode==='machinegun') stopMachinegun();
+  // 火炎: 種置きは止めるが、燃え広がりは継続させる
+  if(mode==='flame') flameDrawing=false;
   if(mode==='jelly'){
     hitCanvas.style.cursor='grab';
     if(loopMode){
@@ -962,10 +1163,18 @@ hitCanvas.addEventListener('touchend',e=>{
   }
 });
 
-window.addEventListener('resize', updateDisplaySize);
+window.addEventListener('resize', ()=>{
+  // auto時は画面幅でレイアウトを再判定
+  if(currentDevice==='auto'){
+    const w=window.innerWidth;
+    const want = w<700 ? 'mobile' : 'portrait';
+    if(want!==currentLayout){ setLayout(want); return; }
+  }
+  updateDisplaySize();
+});
 
 setSize(480,640);
-updateDisplaySize();
+setDevice('auto');
 ctx.fillStyle='#1a1a1a';ctx.fillRect(0,0,W,H);
 ctx.fillStyle='#555';ctx.font='16px sans-serif';ctx.textAlign='center';
 ctx.fillText('元画像を選んでください',W/2,H/2);
