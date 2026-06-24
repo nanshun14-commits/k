@@ -120,6 +120,43 @@ input[type=range] { width: 100px; }
 canvas { display: block; }
 #slider-line-v { display:none; position:absolute; top:0; width:2px; height:100%; background:#fff; opacity:0; pointer-events:none; }
 #slider-line-h { display:none; position:absolute; left:0; width:100%; height:2px; background:#fff; opacity:0; pointer-events:none; }
+
+#stamp-layer {
+  position:absolute; top:0; left:0; width:100%; height:100%;
+  pointer-events:none; /* 個々のスタンプだけ操作可能にする */
+}
+.tickle-stamp {
+  position:absolute;
+  width:90px; height:90px;
+  margin-left:-45px; margin-top:-45px; /* 中心基準 */
+  pointer-events:auto;
+  cursor:grab;
+  touch-action:none;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+.tickle-stamp.dragging { cursor:grabbing; }
+.tickle-stamp .del {
+  position:absolute; top:-6px; right:-6px;
+  width:18px; height:18px; border-radius:50%;
+  background:#c33; color:#fff; font-size:12px; line-height:18px;
+  text-align:center; cursor:pointer; display:none; z-index:3;
+}
+.tickle-stamp .flip {
+  position:absolute; top:-6px; left:-6px;
+  width:18px; height:18px; border-radius:50%;
+  background:#36c; color:#fff; font-size:11px; line-height:18px;
+  text-align:center; cursor:pointer; display:none; z-index:3;
+}
+.tickle-stamp .rot {
+  position:absolute; bottom:-10px; left:50%; margin-left:-8px;
+  width:16px; height:16px; border-radius:50%;
+  background:#3a3; border:2px solid #fff;
+  cursor:grab; display:none; z-index:3;
+}
+.tickle-stamp:hover .del,
+.tickle-stamp:hover .flip,
+.tickle-stamp:hover .rot { display:block; }
+.tickle-inner { pointer-events:none; }
 #hint { font-size: 12px; color: #666; margin-top: 0.5rem; }
 #progress { font-size: 12px; color: #aaa; margin-top: 0.4rem; }
 
@@ -259,6 +296,16 @@ canvas { display: block; }
       <input type="number" id="gradient-duration" min="0.1" max="60" step="0.1" value="3" style="width:60px;font-size:13px;padding:4px;background:#1a1a1a;border:0.5px solid #555;color:#eee;border-radius:6px;">
     </div>
 
+    <div class="divider"></div>
+
+    <div class="control-row">
+      <button id="tickle-add">✋ 紳士ハンドを置く</button>
+      <span class="sl">サイズ</span>
+      <input type="range" id="tickle-size" min="40" max="200" value="90" step="5">
+      <span id="tickle-size-out" style="font-size:13px;min-width:30px;">90</span>
+      <button id="tickle-clear">全部消す</button>
+    </div>
+
     <div id="progress">リビール: 0%</div>
     <p id="hint">元画像と生成後画像を選んでください。</p>
 
@@ -270,6 +317,7 @@ canvas { display: block; }
       <canvas id="hit-canvas" style="position:absolute;top:0;left:0;opacity:0;"></canvas>
       <div id="slider-line-v"></div>
       <div id="slider-line-h"></div>
+      <div id="stamp-layer"></div>
     </div>
   </div>
 
@@ -284,6 +332,7 @@ const sliderH = document.getElementById('slider-line-h');
 const progressEl = document.getElementById('progress');
 const hint = document.getElementById('hint');
 const mainArea = document.getElementById('main-area');
+const stampLayer = document.getElementById('stamp-layer');
 
 let W=480, H=640;
 let baseImg=null, revealImg=null, reveal3Img=null;
@@ -1171,6 +1220,271 @@ window.addEventListener('resize', ()=>{
     if(want!==currentLayout){ setLayout(want); return; }
   }
   updateDisplaySize();
+});
+
+/* ========= 紳士ハンド(くすぐり手)スタンプ ========= */
+let tickleSize=90;
+let tickleStamps=[]; // {el, x%, y%}
+
+// 黒シルエットの手SVG。握り拳+人差し指だけ伸ばして、指先で掻くようにくすぐる
+// デフォルトで横向き(Z軸90度回転)。指は右を向く。
+function makeHandSVG(){
+  const NS='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(NS,'svg');
+  svg.setAttribute('viewBox','0 0 100 100');
+  svg.setAttribute('width','100%');
+  svg.setAttribute('height','100%');
+
+  // 全パーツをまとめて90度回転(中心50,50)。これで指が横向きになる
+  const root=document.createElementNS(NS,'g');
+  root.setAttribute('transform','rotate(90 50 50)');
+  svg.appendChild(root);
+
+  // 拳(手のひら+握り込んだ指の塊)
+  const fist=document.createElementNS(NS,'path');
+  fist.setAttribute('d','M34 52 Q30 50 30 58 L30 74 Q30 90 46 93 L60 93 Q74 90 74 74 L74 56 Q74 48 67 49 Q66 44 59 45 Q58 41 51 42 Q50 40 44 42 L44 52 Z');
+  fist.setAttribute('fill','#111');
+  root.appendChild(fist);
+
+  // 握った指の関節のふくらみ(上辺の凹凸)
+  [[44,50,6],[53,48,6.5],[62,50,6]].forEach(([cx,cy,r])=>{
+    const c=document.createElementNS(NS,'circle');
+    c.setAttribute('cx',cx);c.setAttribute('cy',cy);c.setAttribute('r',r);
+    c.setAttribute('fill','#111');
+    root.appendChild(c);
+  });
+
+  // 親指(左側に折りたたみ)
+  const thumb=document.createElementNS(NS,'path');
+  thumb.setAttribute('d','M30 64 Q22 62 22 70 Q22 77 31 76 Z');
+  thumb.setAttribute('fill','#111');
+  root.appendChild(thumb);
+
+  // 人差し指。第3関節(付け根)と第2関節で2段階に曲がる
+  // indexG(下節:付け根支点) の中に upperG(上節:第2関節支点) を入れ子にする
+  const indexG=document.createElementNS(NS,'g');
+  // 下節(第3関節〜第2関節)
+  const lower=document.createElementNS(NS,'rect');
+  lower.setAttribute('x', 38);
+  lower.setAttribute('y', 34);      // 第2関節あたりまで
+  lower.setAttribute('width', 11);
+  lower.setAttribute('height', 22);
+  lower.setAttribute('rx', 5.5);
+  lower.setAttribute('fill','#111');
+  indexG.appendChild(lower);
+
+  // 第2関節のふくらみ(節の境目)
+  const knuckle=document.createElementNS(NS,'circle');
+  knuckle.setAttribute('cx', 43.5);
+  knuckle.setAttribute('cy', 35);
+  knuckle.setAttribute('r', 5.7);
+  knuckle.setAttribute('fill','#111');
+  indexG.appendChild(knuckle);
+
+  // 上節(第2関節〜指先)。第2関節を支点に追加で曲がる
+  const upperG=document.createElementNS(NS,'g');
+  const upper=document.createElementNS(NS,'rect');
+  upper.setAttribute('x', 38);
+  upper.setAttribute('y', 12);
+  upper.setAttribute('width', 11);
+  upper.setAttribute('height', 25);
+  upper.setAttribute('rx', 5.5);
+  upper.setAttribute('fill','#111');
+  upperG.appendChild(upper);
+  // 指先(丸み)
+  const tip=document.createElementNS(NS,'circle');
+  tip.setAttribute('cx', 43.5);
+  tip.setAttribute('cy', 13);
+  tip.setAttribute('r', 5.5);
+  tip.setAttribute('fill','#111');
+  upperG.appendChild(tip);
+  // 上節の支点=第2関節
+  upperG.dataset.px=43.5; upperG.dataset.py=35;
+  indexG.appendChild(upperG);
+
+  // 下節の支点=付け根(第3関節)
+  indexG.dataset.px=43.5; indexG.dataset.py=52;
+  root.appendChild(indexG);
+
+  svg._index=indexG;
+  svg._indexUpper=upperG;
+  return svg;
+}
+
+let tickleRAF=null;
+function animateTickles(now){
+  const t=now/1000;
+  tickleStamps.forEach(st=>{
+    const svg=st.el._svg;
+    if(!svg||!svg._index)return;
+    const g=svg._index;
+    const px=parseFloat(g.dataset.px), py=parseFloat(g.dataset.py);
+    // 下節(第3関節): 動きは控えめに(ほんの少しだけ)
+    const lowerAng = Math.sin(t*11)*4 + Math.sin(t*23)*1.5;
+    g.setAttribute('transform',`rotate(${lowerAng} ${px} ${py})`);
+    // 上節(第2関節): 主役。ベースで少し曲げた状態+大きく掻く動き
+    const up=svg._indexUpper;
+    if(up){
+      const upx=parseFloat(up.dataset.px), upy=parseFloat(up.dataset.py);
+      const bend=18; // 常に少し曲げておく(内側へ)
+      const upperAng = bend + Math.abs(Math.sin(t*9))*22 + Math.sin(t*19)*4;
+      up.setAttribute('transform',`rotate(${upperAng} ${upx} ${upy})`);
+    }
+  });
+  if(tickleStamps.length>0){
+    tickleRAF=requestAnimationFrame(animateTickles);
+  } else {
+    tickleRAF=null;
+  }
+}
+
+function addTickleStamp(xPct,yPct){
+  const el=document.createElement('div');
+  el.className='tickle-stamp';
+  el.style.width=tickleSize+'px';
+  el.style.height=tickleSize+'px';
+  el.style.marginLeft=(-tickleSize/2)+'px';
+  el.style.marginTop=(-tickleSize/2)+'px';
+  el.style.left=xPct+'%';
+  el.style.top=yPct+'%';
+
+  // 回転・反転を当てる内側ラッパ(SVGを包む)
+  const inner=document.createElement('div');
+  inner.className='tickle-inner';
+  inner.style.width='100%';
+  inner.style.height='100%';
+  inner.style.transformOrigin='center center';
+
+  const svg=makeHandSVG();
+  el._svg=svg;
+  inner.appendChild(svg);
+  el.appendChild(inner);
+  el._inner=inner;
+
+  // 削除ボタン
+  const del=document.createElement('div');
+  del.className='del';
+  del.textContent='×';
+  del.addEventListener('click',ev=>{
+    ev.stopPropagation();
+    removeTickleStamp(el);
+  });
+  el.appendChild(del);
+
+  // 反転ボタン
+  const flipBtn=document.createElement('div');
+  flipBtn.className='flip';
+  flipBtn.textContent='⇄';
+  flipBtn.title='左右反転';
+  flipBtn.addEventListener('click',ev=>{
+    ev.stopPropagation();
+    st.flip=!st.flip;
+    applyTransform();
+  });
+  el.appendChild(flipBtn);
+
+  // 回転ハンドル
+  const rotHandle=document.createElement('div');
+  rotHandle.className='rot';
+  rotHandle.title='ドラッグで回転';
+  el.appendChild(rotHandle);
+
+  function applyTransform(){
+    inner.style.transform=`rotate(${st.rot}deg) scaleX(${st.flip?-1:1})`;
+  }
+  el._applyTransform=applyTransform;
+
+  // ドラッグ移動
+  let dragging=false, offX=0, offY=0;
+  function down(ev){
+    if(ev.target===rotHandle||ev.target===flipBtn||ev.target===del) return;
+    dragging=true; el.classList.add('dragging');
+    const pt=ev.touches?ev.touches[0]:ev;
+    const r=el.getBoundingClientRect();
+    offX=pt.clientX-(r.left+r.width/2);
+    offY=pt.clientY-(r.top+r.height/2);
+    ev.preventDefault();
+  }
+  function move(ev){
+    if(!dragging)return;
+    const pt=ev.touches?ev.touches[0]:ev;
+    const wrap=document.getElementById('canvas-wrap').getBoundingClientRect();
+    let nx=(pt.clientX-offX-wrap.left)/wrap.width*100;
+    let ny=(pt.clientY-offY-wrap.top)/wrap.height*100;
+    nx=Math.max(0,Math.min(100,nx));
+    ny=Math.max(0,Math.min(100,ny));
+    el.style.left=nx+'%'; el.style.top=ny+'%';
+    st.x=nx; st.y=ny;
+    ev.preventDefault();
+  }
+  function up(){ dragging=false; el.classList.remove('dragging'); }
+  el.addEventListener('mousedown',down);
+  window.addEventListener('mousemove',move);
+  window.addEventListener('mouseup',up);
+  el.addEventListener('touchstart',down,{passive:false});
+  window.addEventListener('touchmove',move,{passive:false});
+  window.addEventListener('touchend',up);
+
+  // 回転ハンドルのドラッグ
+  let rotating=false;
+  function rotDown(ev){
+    rotating=true;
+    ev.stopPropagation();
+    ev.preventDefault();
+  }
+  function rotMove(ev){
+    if(!rotating)return;
+    const pt=ev.touches?ev.touches[0]:ev;
+    const r=el.getBoundingClientRect();
+    const cx=r.left+r.width/2, cy=r.top+r.height/2;
+    // 手は上向きが基準(0°)。ハンドルは上にあるので、角度を補正
+    let ang=Math.atan2(pt.clientY-cy, pt.clientX-cx)*180/Math.PI;
+    st.rot=ang+90; // 上向き基準に変換
+    applyTransform();
+    ev.preventDefault();
+  }
+  function rotUp(){ rotating=false; }
+  rotHandle.addEventListener('mousedown',rotDown);
+  window.addEventListener('mousemove',rotMove);
+  window.addEventListener('mouseup',rotUp);
+  rotHandle.addEventListener('touchstart',rotDown,{passive:false});
+  window.addEventListener('touchmove',rotMove,{passive:false});
+  window.addEventListener('touchend',rotUp);
+
+  stampLayer.appendChild(el);
+  const st={el, x:xPct, y:yPct, rot:0, flip:false};
+  tickleStamps.push(st);
+  applyTransform();
+
+  if(!tickleRAF) tickleRAF=requestAnimationFrame(animateTickles);
+}
+
+function removeTickleStamp(el){
+  const idx=tickleStamps.findIndex(s=>s.el===el);
+  if(idx>=0) tickleStamps.splice(idx,1);
+  el.remove();
+}
+
+function clearTickleStamps(){
+  tickleStamps.forEach(s=>s.el.remove());
+  tickleStamps=[];
+}
+
+document.getElementById('tickle-add').addEventListener('click',()=>{
+  // 中央に置く
+  addTickleStamp(50,50);
+});
+document.getElementById('tickle-clear').addEventListener('click',clearTickleStamps);
+document.getElementById('tickle-size').addEventListener('input',e=>{
+  tickleSize=parseInt(e.target.value);
+  document.getElementById('tickle-size-out').textContent=tickleSize;
+  // 既存スタンプにも反映
+  tickleStamps.forEach(s=>{
+    s.el.style.width=tickleSize+'px';
+    s.el.style.height=tickleSize+'px';
+    s.el.style.marginLeft=(-tickleSize/2)+'px';
+    s.el.style.marginTop=(-tickleSize/2)+'px';
+  });
 });
 
 setSize(480,640);
